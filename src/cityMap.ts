@@ -19,10 +19,12 @@ export function createCityMap(container: HTMLElement, select: (i: number) => voi
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-6,6,6,-6,.1,100);
-  camera.position.set(10,14,16); camera.lookAt(0,0,0);
+  const cameraTarget = new THREE.Vector3();
+  camera.position.set(10,14,16); camera.lookAt(cameraTarget);
   scene.add(new THREE.HemisphereLight(0xe9f5df,0x536b5c,2.1));
   const sun = new THREE.DirectionalLight(0xffe7be,2.2); sun.position.set(-5,13,8); scene.add(sun);
   const city = new THREE.Group(); scene.add(city);
+  const pedestrians: { group:THREE.Group; phase:number }[] = [];
   const matCache = new Map<number,THREE.MeshStandardMaterial>();
   const geometryCache = new Map<string,THREE.BufferGeometry>();
   const mat = (color: number) => { let m=matCache.get(color); if(!m){m=new THREE.MeshStandardMaterial({color,roughness:.86,flatShading:true});matCache.set(color,m);} return m; };
@@ -58,6 +60,17 @@ export function createCityMap(container: HTMLElement, select: (i: number) => voi
       box(group,0xd8c39d,0,.35,0,.50,.58,.50);cone(group,0x799e8d,0,.72,0,.42,.28);box(group,0xe8dcba,0,.86,0,.13,.16,.13);windows(group,.48,.55,.50,1);
     } else if(kind==='tower') {
       box(group,0xb9c3ad,0,.44,0,.48,.78,.48);cone(group,0x6d8879,0,.93,0,.40,.26);windows(group,.46,.7,.48,2);
+    } else if(kind==='warehouse') {
+      box(group,0xbda986,0,.30,0,.70,.50,.62);box(group,0x777b69,0,.58,0,.76,.08,.68);box(group,0x6a6551,0,.24,.32,.30,.38,.025);
+      box(group,0xd4af7d,.27,.12,.37,.19,.22,.16);box(group,0xbe926a,-.27,.12,.37,.19,.22,.16);
+    } else if(kind==='bank') {
+      box(group,0xe1dcc8,0,.42,0,.65,.74,.57);box(group,0xc8b989,0,.82,0,.73,.09,.64);cone(group,0xada785,0,1.00,0,.5,.3,4);
+      for(const x of [-.23,0,.23])box(group,0xf4ead0,x,.38,.3,.07,.61,.07);box(group,0xd6ba70,0,1.18,0,.16,.13,.15);
+    } else if(kind==='lab') {
+      box(group,0xadc7ba,0,.42,0,.58,.76,.54);box(group,0x5d8e87,0,.83,0,.66,.08,.62);windows(group,.55,.7,.54,2);box(group,0xa4e1d8,0,1.02,0,.20,.34,.20);
+    } else if(kind==='station') {
+      box(group,0xd8cdb3,0,.26,0,.70,.42,.60);box(group,0x7e8c7c,0,.50,0,.75,.09,.66);box(group,0x6b8f81,0,.65,0,.45,.22,.40);
+      box(group,0x4c5b55,0,.09,.37,.83,.06,.06);box(group,0xd9bd83,0,.19,.35,.46,.20,.16);
     }
   }
   function capital(group:THREE.Group,side:number) {
@@ -72,6 +85,7 @@ export function createCityMap(container: HTMLElement, select: (i: number) => voi
   }
   function redraw(game:Game,selected:number) {
     city.clear();
+    pedestrians.length=0;
     for(let i=0;i<game.tiles.length;i++) {
       const t=game.tiles[i], group=new THREE.Group(); group.userData.tile=i;
       group.position.set((i%SIZE-(SIZE-1)/2)*1.02,0,(Math.floor(i/SIZE)-(SIZE-1)/2)*1.02);
@@ -83,12 +97,22 @@ export function createCityMap(container: HTMLElement, select: (i: number) => voi
         box(group,c,0,.215,.44,.91,.025,thick);box(group,c,0,.215,-.44,.91,.025,thick);box(group,c,.44,.215,0,thick,.025,.91);box(group,c,-.44,.215,0,thick,.025,.91);
       }
       const contents=new THREE.Group(); contents.position.y=.2; group.add(contents);
+      if (t.structure) contents.scale.y = 1 + Math.max(0,t.level - 1) * .22;
       if(t.capital) capital(contents,t.owner);
       else if(t.structure) building(contents,t.structure,ownerColors[t.owner],t.product);
       else if(t.terrain==='forest') {tree(contents,-.19,-.08,.9);tree(contents,.18,.19,.65);}
       else if(t.terrain==='hill') {cone(contents,0x8b927e,0,.16,0,.28,.32,5);cone(contents,0x9fa394,.17,.10,.14,.15,.2,5);}
       else if(t.terrain==='ruins') {box(contents,0xe4c788,0,.04,0,.48,.08,.48);box(contents,0xf2dcaa,0,.21,0,.14,.35,.14);}
       else {box(contents,0xa1b58f,-.18,.015,.1,.12,.03,.08);box(contents,0xb3c49f,.2,.015,-.15,.10,.03,.08);}
+      if (t.owner && (t.structure || t.capital) && pedestrians.length < 36) {
+        const person=new THREE.Group();
+        box(person,ownerColors[t.owner],0,.09,0,.09,.16,.08);box(person,0xe3c4a2,0,.21,0,.08,.08,.08);
+        person.position.set(0,.04,.34); contents.add(person);pedestrians.push({group:person,phase:i*1.7});
+      }
+      if (game.battle?.tile === i) {
+        soldier(contents,-.22,.18,1);
+        box(contents,0xf1d589,-.22,.83,.18,.04,.18,.04);
+      }
       if (game.battleFx?.tile === i) {
         soldier(contents,-.18,.1,game.battleFx.attacker);
         soldier(contents,.18,-.05,game.battleFx.defender);
@@ -107,21 +131,46 @@ export function createCityMap(container: HTMLElement, select: (i: number) => voi
     if(current) redraw(current,currentSelected);
   }
   const observer=new ResizeObserver(resize);observer.observe(container);
-  const ray = new THREE.Raycaster(), pointer = new THREE.Vector2();
-  canvas.addEventListener('pointerdown',event=>{
+  const ray = new THREE.Raycaster(), pointer = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0,1,0),0);
+  let drag: { id:number; x:number; y:number; moved:boolean; ground:THREE.Vector3 | null } | null = null;
+  function point(event:PointerEvent): THREE.Vector3 | null {
     const rect=canvas.getBoundingClientRect();pointer.set(((event.clientX-rect.left)/rect.width)*2-1,-((event.clientY-rect.top)/rect.height)*2+1);
-    ray.setFromCamera(pointer,camera); const hit=ray.intersectObjects(city.children,true)[0];
-    if(!hit)return; let node:THREE.Object3D | null=hit.object;
-    while(node && node.parent!==city)node=node.parent;
-    if(node && typeof node.userData.tile==='number')select(node.userData.tile);
+    ray.setFromCamera(pointer,camera); return ray.ray.intersectPlane(plane,new THREE.Vector3());
+  }
+  canvas.addEventListener('pointerdown',event=>{
+    if (drag) return;
+    drag={ id:event.pointerId, x:event.clientX, y:event.clientY, moved:false, ground:point(event) };
+    canvas.setPointerCapture(event.pointerId);
   });
+  canvas.addEventListener('pointermove',event=>{
+    if (!drag || drag.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>5) drag.moved=true;
+    if (!drag.moved || !drag.ground) return;
+    const next=point(event); if (!next) return;
+    const diff=drag.ground.clone().sub(next);
+    const x=THREE.MathUtils.clamp(cameraTarget.x+diff.x,-SIZE/2,SIZE/2);
+    const z=THREE.MathUtils.clamp(cameraTarget.z+diff.z,-SIZE/2,SIZE/2);
+    camera.position.x+=x-cameraTarget.x;camera.position.z+=z-cameraTarget.z;
+    cameraTarget.set(x,0,z);camera.lookAt(cameraTarget);camera.updateMatrixWorld();
+    drag.ground=point(event);renderer.render(scene,camera);
+  });
+  function release(event:PointerEvent) {
+    if (!drag || drag.id !== event.pointerId) return;
+    if (!drag.moved) {
+      point(event); const hit=ray.intersectObjects(city.children,true)[0];
+      if (hit) { let node:THREE.Object3D | null=hit.object; while(node && node.parent!==city)node=node.parent; if(node && typeof node.userData.tile==='number')select(node.userData.tile); }
+    }
+    drag=null;
+  }
+  canvas.addEventListener('pointerup',release);
+  canvas.addEventListener('pointercancel',()=>{drag=null;});
   canvas.addEventListener('keydown', event => {
     const x=currentSelected%SIZE, y=Math.floor(currentSelected/SIZE);
     const next = event.key==='ArrowLeft' && x>0 ? currentSelected-1 : event.key==='ArrowRight' && x<SIZE-1 ? currentSelected+1 : event.key==='ArrowUp' && y>0 ? currentSelected-SIZE : event.key==='ArrowDown' && y<SIZE-1 ? currentSelected+SIZE : currentSelected;
     if (next !== currentSelected) { event.preventDefault(); select(next); }
   });
   resize();
-  return { draw(game:Game, selected:number) {current=game;currentSelected=selected;redraw(game,selected);}, zoom(factor:number) {zoomFactor=Math.max(.65,Math.min(1.3,zoomFactor*factor));resize();}, dispose() {observer.disconnect();renderer.dispose();for(const g of geometryCache.values())g.dispose();for(const m of matCache.values())m.dispose();canvas.remove();} };
+  return { draw(game:Game, selected:number) {current=game;currentSelected=selected;redraw(game,selected);}, animate(time:number) {for(const p of pedestrians){p.group.position.x=Math.sin(time*.8+p.phase)*.24;p.group.rotation.y=Math.cos(time*.8+p.phase)>0?0:Math.PI;}renderer.render(scene,camera);}, zoom(factor:number) {zoomFactor=Math.max(.5,Math.min(1.3,zoomFactor*factor));resize();}, resetView() {cameraTarget.set(0,0,0);camera.position.set(10,14,16);camera.lookAt(cameraTarget);zoomFactor=1;resize();}, dispose() {observer.disconnect();renderer.dispose();for(const g of geometryCache.values())g.dispose();for(const m of matCache.values())m.dispose();canvas.remove();} };
 }
 
 /** 건물 내부. 지붕을 걷어낸 3D 공간과 고용된 직원들을 표시한다. */
@@ -164,6 +213,17 @@ export function createInterior(container: HTMLElement, kind: string, staff: numb
     box(0x8b6c53,.3,.40,-.5,2,.7,.55);box(0xd9bb8d,.3,.79,-.5,2.1,.10,.65);box(0xd99d83,.3,1.4,-1.65,1.3,.55,.06);sphere(0x86aa81,-1.35,.48,.9,.32);
   } else if(kind==='army') {
     box(0x6e806c,0,.42,0,2.2,.75,1.1);box(0xc0b58b,0,.83,0,2.1,.08,1);box(0x95ad91,0,.88,0,1.4,.03,.7);box(0xc58e71,.4,.92,.1,.15,.09,.15);
+  } else if(kind==='warehouse') {
+    for(const x of [-1,0,1]) for(const z of [-.7,.4]) box(0xc4a070,x,.28,z,.65,.5,.58);
+    box(0x6f8574,.9,1.05,-1.55,1.1,1.8,.30);
+  } else if(kind==='bank') {
+    box(0xcbb994,0,.47,-.45,2.5,.82,.55);box(0xe7d8b6,0,.91,-.45,2.6,.08,.62);box(0x698b7a,1.2,1.18,-1.7,.8,.65,.04);
+  } else if(kind==='lab') {
+    box(0xa6c4bb,0,.45,0,2.2,.75,1.0);box(0xe2e9d7,0,.85,0,2.3,.08,1.1);
+    for(const x of [-.6,0,.6]) { box(0x7fb3a8,x,.98,0,.25,.22,.25);sphere(0xc3e6d0,x,1.16,0,.1); }
+  } else if(kind==='station') {
+    box(0xd2b795,0,.42,-.8,2.2,.7,.55);box(0x78968a,0,.8,-.8,2.3,.08,.62);
+    for(const x of [-.8,.1,1])box(0xa98260,x,.12,.6,.55,.2,.25);box(0x5a7063,0,.04,1,2.7,.06,.07);
   } else {
     box(0x9a795c,.1,.43,-.35,2.1,.75,.8);box(0xd2b18a,.1,.84,-.35,2.2,.08,.9);box(0x6b8373,.6,.97,-.35,.4,.25,.08);sphere(0x82a77a,-1.35,.45,.9,.3);
   }
