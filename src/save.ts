@@ -27,7 +27,15 @@ export function restoreGame(raw: string): Game | null {
     const delivery = d && Number.isInteger(d.product) && d.product >= 0 && d.product < PRODUCTS.length && Number.isFinite(d.stock) && d.stock > 0 && d.stock <= 99 && Number.isFinite(d.reward) && d.reward >= 0 && Number.isFinite(d.expiresAt) && d.expiresAt > saved.time ? d : null;
     const b = saved.battle;
     const battle = !legacy && b && Number.isInteger(b.tile) && b.tile >= 0 && b.tile < SIZE*SIZE && [2,3].includes(b.defender) && Object.hasOwn(TACTICS,b.tactic) && Number.isFinite(b.committed) && b.committed > 0 && Number.isFinite(b.startedAt) && Number.isFinite(b.arrivesAt) ? b : null;
-    return { ...defaults, ...saved, tiles, research:levels, event:activeEvent, delivery, battle,
+    // An out-of-date income timer can make advance() replay billions of missed ticks in a while loop.
+    // Preserve normally pending income, but repair impossible offsets from damaged/legacy saves.
+    const nextIncome = saved.nextIncome >= saved.time - 6 && saved.nextIncome <= saved.time + 60 ? saved.nextIncome : saved.time + 6;
+    const fx = saved.battleFx;
+    const battleFx = !legacy && fx && Number.isInteger(fx.tile) && fx.tile >= 0 && fx.tile < SIZE*SIZE &&
+      [1,2,3].includes(fx.attacker) && [1,2,3].includes(fx.defender) && fx.attacker !== fx.defender &&
+      Number.isFinite(fx.until) && fx.until > saved.time && fx.until <= saved.time + 2 ? fx : null;
+    return { ...defaults, ...saved, tiles, research:levels, event:activeEvent, delivery, battle, nextIncome, battleFx,
+      cooldown:Number.isFinite(saved.cooldown) && saved.cooldown >= 0 && saved.cooldown <= 2 ? saved.cooldown : 0,
       pacts:{2:Number.isFinite(saved.pacts?.[2]) ? Math.max(0,saved.pacts[2]) : 0, 3:Number.isFinite(saved.pacts?.[3]) ? Math.max(0,saved.pacts[3]) : 0},
       mapSeed:Number.isInteger(saved.mapSeed) ? saved.mapSeed >>> 0 : 917,
       deliveries:Number.isInteger(saved.deliveries) && saved.deliveries >= 0 ? saved.deliveries : 0,
@@ -40,6 +48,6 @@ export function restoreGame(raw: string): Game | null {
       era:Number.isInteger(saved.era) && saved.era >= 1 && saved.era <= 4 ? saved.era : 1,
       endless: saved.endless === true,
       status:legacy && saved.status === 'won' ? 'playing' : saved.status,
-      battleFx:legacy ? null : saved.battleFx ?? null };
+    };
   } catch { return null; }
 }
