@@ -28,6 +28,10 @@ export function restoreGame(raw: string): Game | null {
     const b = saved.battle;
     const battle = !legacy && b && Number.isInteger(b.tile) && b.tile >= 0 && b.tile < SIZE*SIZE && [2,3].includes(b.defender) && Object.hasOwn(TACTICS,b.tactic) && Number.isFinite(b.committed) && b.committed > 0 && Number.isFinite(b.startedAt) && Number.isFinite(b.arrivesAt) ? b : null;
     return { ...defaults, ...saved, tiles, research:levels, event:activeEvent, delivery, battle,
+      // Income is processed in a while loop: corrupted timestamps must not trigger
+      // millions of catch-up ticks or postpone the economy indefinitely.
+      nextIncome: Math.max(saved.time, Math.min(saved.time + 6, saved.nextIncome)),
+      cooldown: Number.isFinite(saved.cooldown) && saved.cooldown >= 0 ? saved.cooldown : 0,
       pacts:{2:Number.isFinite(saved.pacts?.[2]) ? Math.max(0,saved.pacts[2]) : 0, 3:Number.isFinite(saved.pacts?.[3]) ? Math.max(0,saved.pacts[3]) : 0},
       mapSeed:Number.isInteger(saved.mapSeed) ? saved.mapSeed >>> 0 : 917,
       deliveries:Number.isInteger(saved.deliveries) && saved.deliveries >= 0 ? saved.deliveries : 0,
