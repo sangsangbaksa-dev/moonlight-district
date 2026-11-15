@@ -33,4 +33,26 @@ describe('extended city progression', () => {
     const tile=restored!.tiles[9*SIZE+9];expect(tile.owner).toBe(1);expect(tile.structure).toBe('mine');expect(tile.staff).toBe(2);expect(tile.level).toBe(1);expect(restored!.research.commerce).toBe(0);
   });
   it('형식이 손상된 저장은 사용하지 않는다', () => {expect(restoreGame('{bad')).toBeNull();expect(restoreGame('{}')).toBeNull();});
+  it('오래되거나 비정상적인 정산 시각을 복구해 무한 정산과 수입 정지를 막는다', () => {
+    const game = newGame();
+    game.time = 90;
+    game.nextIncome = -1_000_000_000;
+    game.cooldown = Number.NaN;
+    const restored = restoreGame(JSON.stringify({ ...game, cooldown: -50 }));
+    expect(restored).not.toBeNull();
+    expect(restored!.nextIncome).toBe(90);
+    expect(restored!.cooldown).toBe(0);
+    advance(restored!, 0.5);
+    expect(restored!.nextIncome).toBe(96);
+    expect(restored!.factions[1].gold).toBeGreaterThan(game.factions[1].gold);
+
+    const future = restoreGame(JSON.stringify({ ...game, nextIncome: 1_000_000_000, cooldown: null }));
+    expect(future!.nextIncome).toBe(96);
+    expect(future!.cooldown).toBe(0);
+
+    const valid = restoreGame(JSON.stringify({ ...game, nextIncome: 93, cooldown: 1.25 }));
+    expect(valid!.nextIncome).toBe(93);
+    expect(valid!.cooldown).toBe(1.25);
+  });
+
 });
